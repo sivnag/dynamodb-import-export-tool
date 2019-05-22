@@ -62,6 +62,14 @@ public class CommandLineArgs {
         return destinationTable;
     }
 
+    public static final String CREATE_DESTINATION_TABLE_IF_NOT_FOUND = "--createDestinationTableIfNotFound";
+    @Parameter(names = CREATE_DESTINATION_TABLE_IF_NOT_FOUND, description = "if destinationTable is not found in destinationEndpoint, then, create destinationTable based on sourceTable")
+    private boolean createDestinationTableIfNotFound = false;
+
+    public boolean shouldCreateDestinationTableIfNotFound() {
+        return createDestinationTableIfNotFound;
+    }
+
     public static final String READ_THROUGHPUT_RATIO = "--readThroughputRatio";
     @Parameter(names = READ_THROUGHPUT_RATIO, description = "Percentage of total read throughput to scan the source table", required = true)
     private double readThroughputRatio;

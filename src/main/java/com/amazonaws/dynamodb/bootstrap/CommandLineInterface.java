@@ -19,6 +19,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
+import java.util.function.Function; 
 
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
@@ -30,9 +32,17 @@ import com.amazonaws.dynamodb.bootstrap.exception.NullReadCapacityException;
 import com.amazonaws.dynamodb.bootstrap.exception.SectionOutOfRangeException;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
+import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
+import com.amazonaws.services.dynamodbv2.model.CreateTableResult;
+import com.amazonaws.services.dynamodbv2.model.DescribeTableResult;
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
+import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndex;
+import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndexDescription;
+import com.amazonaws.services.dynamodbv2.model.LocalSecondaryIndex;
+import com.amazonaws.services.dynamodbv2.model.LocalSecondaryIndexDescription;
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
-
+import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
 /**
  * The interface that parses the arguments, and begins to transfer data from one
  * DynamoDB table to another
@@ -45,13 +55,48 @@ public class CommandLineInterface {
     private static final Logger LOGGER = LogManager
             .getLogger(CommandLineInterface.class);
 
+    private static void waitTillTableCreated(AmazonDynamoDBClient client, String tableName, CreateTableResult response) throws java.lang.InterruptedException
+    {
+        TableDescription tableDescription = response.getTableDescription();
+
+        String status = tableDescription.getTableStatus();
+
+        System.out.println(tableName + " - " + status);
+
+        while (!status.equals("ACTIVE")){
+            Thread.sleep(5000);
+            try{
+                DescribeTableResult res = client.describeTable(tableName);
+                status = res.getTable().getTableStatus();
+                System.out.println(tableName + " - " + status);
+            }
+            catch (ResourceNotFoundException e){}
+        }
+    }
+
+    private static GlobalSecondaryIndex GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(GlobalSecondaryIndexDescription indexDescription){
+        return new GlobalSecondaryIndex()
+            .withIndexName(indexDescription.getIndexName())
+            .withKeySchema(indexDescription.getKeySchema())
+            .withProjection(indexDescription.getProjection())
+            .withProvisionedThroughput(new ProvisionedThroughput(indexDescription.getProvisionedThroughput().getReadCapacityUnits(),
+                indexDescription.getProvisionedThroughput().getWriteCapacityUnits()));
+    }
+
+    private static LocalSecondaryIndex LocalSecondaryIndexDescriptionToLocalSecondaryIndex(LocalSecondaryIndexDescription indexDescription){
+        return new LocalSecondaryIndex()
+            .withIndexName(indexDescription.getIndexName())
+            .withKeySchema(indexDescription.getKeySchema())
+            .withProjection(indexDescription.getProjection());
+    }
+
     /**
      * Main class to begin transferring data from one DynamoDB table to another
      * DynamoDB table.
      * 
      * @param args
      */
-    public static void main(String[] args) {
+    public static void main(String[] args) throws java.lang.InterruptedException{
         CommandLineArgs params = new CommandLineArgs();
         JCommander cmd = new JCommander(params);
 
@@ -91,8 +136,43 @@ public class CommandLineInterface {
 
         TableDescription readTableDescription = sourceClient.describeTable(
                 sourceTable).getTable();
-        TableDescription writeTableDescription = destinationClient
-                .describeTable(destinationTable).getTable();
+        TableDescription writeTableDescription;
+        try{
+            writeTableDescription = destinationClient
+                    .describeTable(destinationTable).getTable();
+        }catch(ResourceNotFoundException e){
+            if(params.shouldCreateDestinationTableIfNotFound()){
+                LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
+                CreateTableRequest request = new CreateTableRequest()
+                    .withAttributeDefinitions(readTableDescription.getAttributeDefinitions())
+                    .withTableName(destinationTable)
+                    .withKeySchema(readTableDescription.getKeySchema())
+                    .withProvisionedThroughput(new ProvisionedThroughput(
+                        readTableDescription.getProvisionedThroughput().getReadCapacityUnits(),
+                        readTableDescription.getProvisionedThroughput().getWriteCapacityUnits()));
+
+                java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
+                if(gsid != null){
+                    java.util.List<GlobalSecondaryIndex> gsi = gsid.stream()
+                        .map(index -> GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(index))
+                        .collect(Collectors.toList());
+                        request.setGlobalSecondaryIndexes(gsi);
+                }
+                java.util.Collection<LocalSecondaryIndexDescription> lsid = readTableDescription.getLocalSecondaryIndexes();
+                if(lsid != null){
+                    java.util.List<LocalSecondaryIndex> lsi = lsid.stream()
+                        .map(index -> LocalSecondaryIndexDescriptionToLocalSecondaryIndex(index))
+                        .collect(Collectors.toList());
+                    request.setLocalSecondaryIndexes(lsi);
+                }
+
+                CreateTableResult response = destinationClient.createTable(request);
+                waitTillTableCreated(destinationClient, destinationTable, response);
+                writeTableDescription = response.getTableDescription();
+            }
+            else
+                throw e;
+        }
         int numSegments = 10;
         try {
             numSegments = DynamoDBBootstrapWorker
