@@ -75,12 +75,19 @@ public class CommandLineInterface {
     }
 
     private static GlobalSecondaryIndex GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(GlobalSecondaryIndexDescription indexDescription){
-        return new GlobalSecondaryIndex()
+        GlobalSecondaryIndex gsi = new GlobalSecondaryIndex()
             .withIndexName(indexDescription.getIndexName())
             .withKeySchema(indexDescription.getKeySchema())
-            .withProjection(indexDescription.getProjection())
-            .withProvisionedThroughput(new ProvisionedThroughput(indexDescription.getProvisionedThroughput().getReadCapacityUnits(),
-                indexDescription.getProvisionedThroughput().getWriteCapacityUnits()));
+            .withProjection(indexDescription.getProjection());
+
+        Long readCapacity = indexDescription.getProvisionedThroughput().getReadCapacityUnits();
+        if(readCapacity == 0L)
+            readCapacity = 5L;
+        Long writeCapacity = indexDescription.getProvisionedThroughput().getWriteCapacityUnits();
+        if(writeCapacity == 0L)
+            writeCapacity = 5L;
+        gsi.setProvisionedThroughput(new ProvisionedThroughput());
+        return gsi;
     }
 
     private static LocalSecondaryIndex LocalSecondaryIndexDescriptionToLocalSecondaryIndex(LocalSecondaryIndexDescription indexDescription){
@@ -146,10 +153,15 @@ public class CommandLineInterface {
                 CreateTableRequest request = new CreateTableRequest()
                     .withAttributeDefinitions(readTableDescription.getAttributeDefinitions())
                     .withTableName(destinationTable)
-                    .withKeySchema(readTableDescription.getKeySchema())
-                    .withProvisionedThroughput(new ProvisionedThroughput(
-                        readTableDescription.getProvisionedThroughput().getReadCapacityUnits(),
-                        readTableDescription.getProvisionedThroughput().getWriteCapacityUnits()));
+                    .withKeySchema(readTableDescription.getKeySchema());
+
+                Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+                if(readCapacity == 0L)
+                    readCapacity = 5L;
+                Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                if(writeCapacity == 0L)
+                    writeCapacity = 5L;
+                request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
 
                 java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
                 if(gsid != null){
@@ -217,12 +229,19 @@ public class CommandLineInterface {
     private static double calculateThroughput(
             TableDescription tableDescription, double throughputRatio,
             boolean read) {
+        double result = 0;
         if (read) {
-            return tableDescription.getProvisionedThroughput()
+            result = tableDescription.getProvisionedThroughput()
                     .getReadCapacityUnits() * throughputRatio;
         }
-        return tableDescription.getProvisionedThroughput()
+        else {
+            result = tableDescription.getProvisionedThroughput()
                 .getWriteCapacityUnits() * throughputRatio;
+        }
+        if(result == 0)
+            result = 5;
+
+        return result;
     }
 
     /**
