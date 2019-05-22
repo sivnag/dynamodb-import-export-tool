@@ -22,6 +22,8 @@ java -jar dynamodb-import-export-tool.jar
 
 --destinationTable <destination_table> // the destination table to write to.
 
+--createDestinationTableIfNotFound <boolean> // (Optional, default=false) if destinationTable is not found in destinationEndpoint, then, create destinationTable based on sourceTable
+
 --sourceEndpoint <source_endpoint> // the endpoint where the source table is located.
 
 --sourceTable <source_table>// the source table to read from.
