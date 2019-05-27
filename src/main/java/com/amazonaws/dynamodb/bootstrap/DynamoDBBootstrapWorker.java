@@ -18,6 +18,9 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 import com.amazonaws.dynamodb.bootstrap.exception.NullReadCapacityException;
 import com.amazonaws.dynamodb.bootstrap.exception.SectionOutOfRangeException;
@@ -39,6 +42,9 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
     private int section;
     private int totalSections;
     private final boolean consistentScan;
+
+    private static final Logger LOGGER = LogManager
+            .getLogger(DynamoDBConsumerWorker.class);
 
     /**
      * Creates the DynamoDBBootstrapWorker, calculates the number of segments a
@@ -112,10 +118,13 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
                 .getParallelScanCompletionService(request, numSegments,
                         threadPool, section, totalSections);
 
+        Long scanned = 0L;
         while (!scanService.finished()) {
             SegmentedScanResult result = scanService.grab();
+            scanned += result.getScanResult().getScannedCount();
             consumer.writeResult(result);
         }
+        LOGGER.info("total scanned count = " + scanned);
 
         shutdown(true);
         consumer.shutdown(true);
@@ -140,6 +149,10 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
                 / BootstrapConstants.GIGABYTE);
         Long readCapacity = provisionedThroughput.getReadCapacityUnits();
         Long writeCapacity = provisionedThroughput.getWriteCapacityUnits();
+        if(readCapacity == 0L)
+            readCapacity = 500L;
+        if(writeCapacity == 0L)
+            writeCapacity = 500L;
         if (writeCapacity == null) {
             writeCapacity = 1L;
         }

@@ -20,6 +20,9 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.BatchWriteItemRequest;
@@ -27,6 +30,8 @@ import com.amazonaws.services.dynamodbv2.model.BatchWriteItemResult;
 import com.amazonaws.services.dynamodbv2.model.ConsumedCapacity;
 import com.amazonaws.services.dynamodbv2.model.WriteRequest;
 import com.google.common.util.concurrent.RateLimiter;
+
+import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughputExceededException;
 
 /**
  * Callable class that is used to write a batch of items to DynamoDB with exponential backoff.
@@ -38,6 +43,11 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
     private long exponentialBackoffTime;
     private BatchWriteItemRequest batch;
     private final String tableName;
+    private static int ___ID = 0;
+    private int __ID;
+
+    private static final Logger LOGGER = LogManager
+            .getLogger(DynamoDBConsumerWorker.class);
 
     /**
      * Callable class that when called will try to write a batch to a DynamoDB
@@ -47,6 +57,7 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
     public DynamoDBConsumerWorker(BatchWriteItemRequest batchWriteItemRequest,
             AmazonDynamoDBClient client, RateLimiter rateLimiter,
             String tableName) {
+        this.__ID = ++DynamoDBConsumerWorker.___ID;
         this.batch = batchWriteItemRequest;
         this.client = client;
         this.rateLimiter = rateLimiter;
@@ -60,13 +71,16 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
      */
     @Override
     public Void call() {
-        List<ConsumedCapacity> batchResult = runWithBackoff(batch);
-        Iterator<ConsumedCapacity> it = batchResult.iterator();
+        LOGGER.info("Consumer" + __ID + " about to batch write " + batch.getRequestItems().get(tableName).size() + " records");
+        //List<ConsumedCapacity> batchResult = 
+        runWithBackoff(batch);
+        LOGGER.info("Consumer" + __ID + " finished writing");
+        /*Iterator<ConsumedCapacity> it = batchResult.iterator();
         int consumedCapacity = 0;
         while (it.hasNext()) {
             consumedCapacity += it.next().getCapacityUnits().intValue();
         }
-        rateLimiter.acquire(consumedCapacity);
+        rateLimiter.acquire(consumedCapacity);*/
         return null;
     }
 
@@ -75,21 +89,43 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
      * batchWriteItem returns unprocessed items then it will exponentially
      * backoff and retry the unprocessed items.
      */
-    public List<ConsumedCapacity> runWithBackoff(BatchWriteItemRequest req) {
+    public void 
+    //List<ConsumedCapacity> 
+    runWithBackoff(BatchWriteItemRequest req) {
         BatchWriteItemResult writeItemResult = null;
-        List<ConsumedCapacity> consumedCapacities = new LinkedList<ConsumedCapacity>();
+        //List<ConsumedCapacity> consumedCapacities = new LinkedList<ConsumedCapacity>();
         Map<String, List<WriteRequest>> unprocessedItems = null;
         boolean interrupted = false;
+        boolean throughputExceeded = false;
         try {
             do {
-                writeItemResult = client.batchWriteItem(req);
-                unprocessedItems = writeItemResult.getUnprocessedItems();
-                consumedCapacities
-                        .addAll(writeItemResult.getConsumedCapacity());
+                throughputExceeded = false;
+                writeItemResult = null;
+                unprocessedItems = null;
+                try{
+                    writeItemResult = client.batchWriteItem(req);
+                }catch(ProvisionedThroughputExceededException e){
+                    LOGGER.warn("ProvisionedThroughputExceededException @ consumer " + __ID);
+                    throughputExceeded = true;
+                }
 
-                if (unprocessedItems != null) {
-                    req.setRequestItems(unprocessedItems);
+                if(writeItemResult != null){
+                    unprocessedItems = writeItemResult.getUnprocessedItems();
+                    //consumedCapacities.addAll(writeItemResult.getConsumedCapacity());
+                    List<ConsumedCapacity> batchResult = writeItemResult.getConsumedCapacity();
+                    Iterator<ConsumedCapacity> it = batchResult.iterator();
+                    int consumedCapacity = 0;
+                    while (it.hasNext()) {
+                        consumedCapacity += it.next().getCapacityUnits().intValue();
+                    }
+                    rateLimiter.acquire(consumedCapacity);
+                }
+
+                if(unprocessedItems != null || throughputExceeded){
+                    if (unprocessedItems != null)
+                        req.setRequestItems(unprocessedItems);
                     try {
+                        LOGGER.info("consumer " + __ID + " going to sleep for " + exponentialBackoffTime + "mS");
                         Thread.sleep(exponentialBackoffTime);
                     } catch (InterruptedException ie) {
                         interrupted = true;
@@ -100,9 +136,13 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
                         }
                     }
                 }
-            } while (unprocessedItems != null && unprocessedItems.get(tableName) != null);
-            return consumedCapacities;
-        } finally {
+            } while (throughputExceeded || (unprocessedItems != null && unprocessedItems.get(tableName) != null));
+            //return consumedCapacities;
+        }catch(Exception e){
+            LOGGER.warn("Consumer " + __ID + "died facing exception " + e);
+            throw e;
+        } 
+        finally {
             if (interrupted) {
                 Thread.currentThread().interrupt();
             }

@@ -102,6 +102,9 @@ public class ScanSegmentWorker implements Callable<SegmentedScanResult> {
                         interrupted = true;
                     } finally {
                         exponentialBackoffTime *= 2;
+                        if (exponentialBackoffTime > BootstrapConstants.MAX_EXPONENTIAL_BACKOFF_TIME) {
+                            exponentialBackoffTime = BootstrapConstants.MAX_EXPONENTIAL_BACKOFF_TIME;
+                        }
                     }
                     continue;
                 }

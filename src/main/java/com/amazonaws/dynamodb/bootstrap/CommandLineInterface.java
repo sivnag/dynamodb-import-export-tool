@@ -61,14 +61,14 @@ public class CommandLineInterface {
 
         String status = tableDescription.getTableStatus();
 
-        System.out.println(tableName + " - " + status);
+        LOGGER.info(tableName + " - " + status);
 
         while (!status.equals("ACTIVE")){
             Thread.sleep(5000);
             try{
                 DescribeTableResult res = client.describeTable(tableName);
                 status = res.getTable().getTableStatus();
-                System.out.println(tableName + " - " + status);
+                LOGGER.info(tableName + " - " + status);
             }
             catch (ResourceNotFoundException e){}
         }
@@ -85,7 +85,7 @@ public class CommandLineInterface {
             readCapacity = 5L;
         Long writeCapacity = indexDescription.getProvisionedThroughput().getWriteCapacityUnits();
         if(writeCapacity == 0L)
-            writeCapacity = 5L;
+            writeCapacity = 500L;
         gsi.setProvisionedThroughput(new ProvisionedThroughput());
         return gsi;
     }
@@ -160,7 +160,7 @@ public class CommandLineInterface {
                     readCapacity = 5L;
                 Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
                 if(writeCapacity == 0L)
-                    writeCapacity = 5L;
+                    writeCapacity = 500L;
                 request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
 
                 java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
@@ -189,6 +189,7 @@ public class CommandLineInterface {
         try {
             numSegments = DynamoDBBootstrapWorker
                     .getNumberOfSegments(readTableDescription);
+            LOGGER.info("numSegments = " + numSegments);
         } catch (NullReadCapacityException e) {
             LOGGER.warn("Number of segments not specified - defaulting to "
                     + numSegments, e);
@@ -239,7 +240,7 @@ public class CommandLineInterface {
                 .getWriteCapacityUnits() * throughputRatio;
         }
         if(result == 0)
-            result = 5;
+            result = 500 * throughputRatio;
 
         return result;
     }
@@ -252,6 +253,9 @@ public class CommandLineInterface {
         if (corePoolSize > maxWriteThreads) {
             corePoolSize = maxWriteThreads - 1;
         }
+
+        LOGGER.info("destination thread pool corePoolSize = " + corePoolSize + " maxPoolSize = " + maxWriteThreads);
+
         final long keepAlive = BootstrapConstants.DYNAMODB_CLIENT_EXECUTOR_KEEP_ALIVE;
         ExecutorService exec = new ThreadPoolExecutor(corePoolSize,
                 maxWriteThreads, keepAlive, TimeUnit.MILLISECONDS,
@@ -268,6 +272,8 @@ public class CommandLineInterface {
         if (corePoolSize > numSegments) {
             corePoolSize = numSegments - 1;
         }
+
+        LOGGER.info("source thread pool corePoolSize = " + corePoolSize + " maxPoolSize = " + numSegments);
 
         final long keepAlive = BootstrapConstants.DYNAMODB_CLIENT_EXECUTOR_KEEP_ALIVE;
         ExecutorService exec = new ThreadPoolExecutor(corePoolSize,

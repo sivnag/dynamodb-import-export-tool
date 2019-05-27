@@ -22,6 +22,9 @@ import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+import org.apache.log4j.LogManager;
+import org.apache.log4j.Logger;
+
 import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
@@ -42,6 +45,8 @@ public class DynamoDBConsumer extends AbstractLogConsumer {
     private final String tableName;
     private final RateLimiter rateLimiter;
 
+    private static final Logger LOGGER = LogManager
+            .getLogger(DynamoDBConsumer.class);
     /**
      * Class to consume logs and write them to a DynamoDB table.
      */
@@ -91,14 +96,18 @@ public class DynamoDBConsumer extends AbstractLogConsumer {
                 .withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
         List<WriteRequest> writeRequests = new LinkedList<WriteRequest>();
         int i = 0;
+        long j = 0L;
+        int k = 0;
         while (it.hasNext()) {
             PutRequest put = new PutRequest(it.next());
             writeRequests.add(new WriteRequest(put));
 
             i++;
+            ++j;
             if (i == BootstrapConstants.MAX_BATCH_SIZE_WRITE_ITEM) {
                 req.addRequestItemsEntry(tableName, writeRequests);
                 batches.add(req);
+                ++k;
                 req = new BatchWriteItemRequest()
                         .withReturnConsumedCapacity(ReturnConsumedCapacity.TOTAL);
                 writeRequests = new LinkedList<WriteRequest>();
@@ -108,7 +117,9 @@ public class DynamoDBConsumer extends AbstractLogConsumer {
         if (i > 0) {
             req.addRequestItemsEntry(tableName, writeRequests);
             batches.add(req);
+            ++k;
         }
+        LOGGER.info("split " + j + " records into " + k + " batches");
         return batches;
     }
 }
