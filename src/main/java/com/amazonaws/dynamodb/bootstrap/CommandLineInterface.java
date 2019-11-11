@@ -25,6 +25,8 @@ import com.amazonaws.services.dynamodbv2.AmazonDynamoDBClient;
 import com.amazonaws.services.dynamodbv2.model.TableDescription;
 import com.amazonaws.services.dynamodbv2.model.CreateTableRequest;
 import com.amazonaws.services.dynamodbv2.model.CreateTableResult;
+import com.amazonaws.services.dynamodbv2.model.UpdateTableRequest;
+import com.amazonaws.services.dynamodbv2.model.UpdateTableResult;
 import com.amazonaws.services.dynamodbv2.model.DescribeTableResult;
 import com.amazonaws.services.dynamodbv2.model.ProvisionedThroughput;
 import com.amazonaws.services.dynamodbv2.model.GlobalSecondaryIndex;
@@ -39,6 +41,10 @@ import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
  * DynamoDB table to another
  */
 public class CommandLineInterface {
+
+    private static final Long TARGET_WCU_DURING_REPLICA = 500L;
+    private static final Long TARGET_LOW_WCU = 5L;
+    private static final Long TARGET_LOW_RCU = 10L;
 
     /**
      * Logger for the DynamoDBBootstrapWorker.
@@ -65,6 +71,18 @@ public class CommandLineInterface {
         }
     }
 
+    private static void waitTillTableUpdated(AmazonDynamoDBClient client, String tableName) throws java.lang.InterruptedException
+    {
+        DescribeTableResult res = client.describeTable(tableName);
+        String status = res.getTable().getTableStatus();
+        while (!status.equals("ACTIVE")){
+            Thread.sleep(5000);
+            res = client.describeTable(tableName);
+            status = res.getTable().getTableStatus();
+            LOGGER.info(tableName + " - " + status);
+        }
+    }
+
     private static GlobalSecondaryIndex GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(GlobalSecondaryIndexDescription indexDescription){
         GlobalSecondaryIndex gsi = new GlobalSecondaryIndex()
             .withIndexName(indexDescription.getIndexName())
@@ -72,11 +90,11 @@ public class CommandLineInterface {
             .withProjection(indexDescription.getProjection());
 
         Long readCapacity = indexDescription.getProvisionedThroughput().getReadCapacityUnits();
-        if(readCapacity == 0L)
-            readCapacity = 5L;
+        if(readCapacity != TARGET_LOW_RCU)
+            readCapacity = TARGET_LOW_RCU;
         Long writeCapacity = indexDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(writeCapacity == 0L)
-            writeCapacity = 500L;
+        if(writeCapacity != TARGET_LOW_WCU)
+            writeCapacity = TARGET_LOW_WCU;
         gsi.setProvisionedThroughput(new ProvisionedThroughput());
         return gsi;
     }
@@ -94,7 +112,7 @@ public class CommandLineInterface {
      * 
      * @param args
      */
-    public static void main(String[] args) throws java.lang.InterruptedException{
+    public static void main(String[] args) throws java.lang.InterruptedException, java.lang.Exception{
         CommandLineArgs params = new CommandLineArgs();
         JCommander cmd = new JCommander(params);
 
@@ -138,6 +156,25 @@ public class CommandLineInterface {
         try{
             writeTableDescription = destinationClient
                     .describeTable(destinationTable).getTable();
+
+            Long readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+            if(readCapacity != TARGET_LOW_RCU)
+                readCapacity = TARGET_LOW_RCU;
+            Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+            if(writeCapacity < TARGET_WCU_DURING_REPLICA)
+                writeCapacity = TARGET_WCU_DURING_REPLICA;
+
+            UpdateTableRequest request = new UpdateTableRequest()
+                    .withTableName(destinationTable);
+            request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+            UpdateTableResult response = destinationClient.updateTable(request);
+
+            waitTillTableUpdated(destinationClient, destinationTable);
+
+            DescribeTableResult res = destinationClient.describeTable(destinationTable);
+            writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
+            if(writeCapacity != TARGET_WCU_DURING_REPLICA)
+                throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
         }catch(ResourceNotFoundException e){
             if(params.shouldCreateDestinationTableIfNotFound()){
                 LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
@@ -147,11 +184,11 @@ public class CommandLineInterface {
                     .withKeySchema(readTableDescription.getKeySchema());
 
                 Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-                if(readCapacity == 0L)
-                    readCapacity = 5L;
+                if(readCapacity != TARGET_LOW_RCU)
+                    readCapacity = TARGET_LOW_RCU;
                 Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                if(writeCapacity == 0L)
-                    writeCapacity = 500L;
+                if(writeCapacity < TARGET_WCU_DURING_REPLICA)
+                    writeCapacity = TARGET_WCU_DURING_REPLICA;
                 request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
 
                 java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
@@ -172,6 +209,9 @@ public class CommandLineInterface {
                 CreateTableResult response = destinationClient.createTable(request);
                 waitTillTableCreated(destinationClient, destinationTable, response);
                 writeTableDescription = response.getTableDescription();
+                writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                if(writeCapacity != TARGET_WCU_DURING_REPLICA)
+                    throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
             }
             else
                 throw e;
@@ -212,6 +252,22 @@ public class CommandLineInterface {
         } catch (SectionOutOfRangeException e) {
             LOGGER.error("Invalid section parameter", e);
         }
+
+        Long readCapacity = TARGET_LOW_RCU;
+        Long writeCapacity = TARGET_LOW_WCU;
+        UpdateTableRequest request = new UpdateTableRequest()
+            .withTableName(destinationTable);
+        request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+        UpdateTableResult response = destinationClient.updateTable(request);
+
+        waitTillTableUpdated(destinationClient, destinationTable);
+
+        DescribeTableResult res = destinationClient.describeTable(destinationTable);
+        writeTableDescription = res.getTable();
+        readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+        writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+        if(writeCapacity != TARGET_LOW_WCU || readCapacity != TARGET_LOW_RCU)
+            throw new Exception("Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable);
     }
 
     /**
