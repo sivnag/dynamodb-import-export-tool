@@ -71,13 +71,16 @@ public class CommandLineInterface {
         }
     }
 
-    private static void waitTillTableUpdated(AmazonDynamoDBClient client, String tableName) throws java.lang.InterruptedException
+    private static void waitTillTableUpdated(AmazonDynamoDBClient client, String tableName, UpdateTableResult response) throws java.lang.InterruptedException
     {
-        DescribeTableResult res = client.describeTable(tableName);
-        String status = res.getTable().getTableStatus();
+        TableDescription tableDescription = response.getTableDescription();
+
+        String status = tableDescription.getTableStatus();
+
+        LOGGER.info(tableName + " - " + status);
         while (!status.equals("ACTIVE")){
             Thread.sleep(5000);
-            res = client.describeTable(tableName);
+            DescribeTableResult res = client.describeTable(tableName);
             status = res.getTable().getTableStatus();
             LOGGER.info(tableName + " - " + status);
         }
@@ -90,10 +93,10 @@ public class CommandLineInterface {
             .withProjection(indexDescription.getProjection());
 
         Long readCapacity = indexDescription.getProvisionedThroughput().getReadCapacityUnits();
-        if(readCapacity != TARGET_LOW_RCU)
+        if(!readCapacity.equals(TARGET_LOW_RCU))
             readCapacity = TARGET_LOW_RCU;
         Long writeCapacity = indexDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(writeCapacity != TARGET_LOW_WCU)
+        if(!writeCapacity.equals(TARGET_LOW_WCU))
             writeCapacity = TARGET_LOW_WCU;
         gsi.setProvisionedThroughput(new ProvisionedThroughput());
         return gsi;
@@ -157,24 +160,33 @@ public class CommandLineInterface {
             writeTableDescription = destinationClient
                     .describeTable(destinationTable).getTable();
 
+            boolean updateRequired = false;
             Long readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-            if(readCapacity != TARGET_LOW_RCU)
+            if(!readCapacity.equals(TARGET_LOW_RCU)){
+                LOGGER.info("target read capacity = " + readCapacity + ". Needs update");
                 readCapacity = TARGET_LOW_RCU;
+                updateRequired = true;
+            }
             Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-            if(writeCapacity < TARGET_WCU_DURING_REPLICA)
+            if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
+                LOGGER.info("target write capacity = " + writeCapacity + ". Needs update");
                 writeCapacity = TARGET_WCU_DURING_REPLICA;
+                updateRequired = true;
+            }
 
-            UpdateTableRequest request = new UpdateTableRequest()
-                    .withTableName(destinationTable);
-            request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
-            UpdateTableResult response = destinationClient.updateTable(request);
+            if(updateRequired){
+                UpdateTableRequest request = new UpdateTableRequest()
+                        .withTableName(destinationTable);
+                request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+                UpdateTableResult response = destinationClient.updateTable(request);
 
-            waitTillTableUpdated(destinationClient, destinationTable);
+                waitTillTableUpdated(destinationClient, destinationTable, response);
 
-            DescribeTableResult res = destinationClient.describeTable(destinationTable);
-            writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
-            if(writeCapacity != TARGET_WCU_DURING_REPLICA)
-                throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
+                DescribeTableResult res = destinationClient.describeTable(destinationTable);
+                writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
+                if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
+                    throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
+            }
         }catch(ResourceNotFoundException e){
             if(params.shouldCreateDestinationTableIfNotFound()){
                 LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
@@ -184,10 +196,10 @@ public class CommandLineInterface {
                     .withKeySchema(readTableDescription.getKeySchema());
 
                 Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-                if(readCapacity != TARGET_LOW_RCU)
+                if(!readCapacity.equals(TARGET_LOW_RCU))
                     readCapacity = TARGET_LOW_RCU;
                 Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                if(writeCapacity < TARGET_WCU_DURING_REPLICA)
+                if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0)
                     writeCapacity = TARGET_WCU_DURING_REPLICA;
                 request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
 
@@ -210,7 +222,7 @@ public class CommandLineInterface {
                 waitTillTableCreated(destinationClient, destinationTable, response);
                 writeTableDescription = response.getTableDescription();
                 writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                if(writeCapacity != TARGET_WCU_DURING_REPLICA)
+                if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
                     throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
             }
             else
@@ -260,13 +272,13 @@ public class CommandLineInterface {
         request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
         UpdateTableResult response = destinationClient.updateTable(request);
 
-        waitTillTableUpdated(destinationClient, destinationTable);
+        waitTillTableUpdated(destinationClient, destinationTable, response);
 
         DescribeTableResult res = destinationClient.describeTable(destinationTable);
         writeTableDescription = res.getTable();
         readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
         writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(writeCapacity != TARGET_LOW_WCU || readCapacity != TARGET_LOW_RCU)
+        if(!writeCapacity.equals(TARGET_LOW_WCU) || !readCapacity.equals(TARGET_LOW_RCU))
             throw new Exception("Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable);
     }
 
