@@ -270,16 +270,29 @@ public class CommandLineInterface {
         UpdateTableRequest request = new UpdateTableRequest()
             .withTableName(destinationTable);
         request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
-        UpdateTableResult response = destinationClient.updateTable(request);
 
-        waitTillTableUpdated(destinationClient, destinationTable, response);
+        try{
+            UpdateTableResult response = destinationClient.updateTable(request);
+            waitTillTableUpdated(destinationClient, destinationTable, response);
+        }catch(Exception e){
+            //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+            //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+            //till the higher provision is manually reduced at a later time!!!
+            LOGGER.warn("Exception while resetting lower RCU, WCU for " + destinationTable + " " + e);
+        }
 
         DescribeTableResult res = destinationClient.describeTable(destinationTable);
         writeTableDescription = res.getTable();
         readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
         writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(!writeCapacity.equals(TARGET_LOW_WCU) || !readCapacity.equals(TARGET_LOW_RCU))
-            throw new Exception("Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable);
+        if(!writeCapacity.equals(TARGET_LOW_WCU) || !readCapacity.equals(TARGET_LOW_RCU)){
+            //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+            //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+            //till the higher provision is manually reduced at a later time!!!
+            String msg="Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable;
+            LOGGER.warn(msg);
+            //throw new Exception(msg);
+        }
     }
 
     /**
