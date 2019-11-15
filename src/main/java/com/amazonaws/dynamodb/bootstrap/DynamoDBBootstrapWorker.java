@@ -140,17 +140,17 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
                 / BootstrapConstants.GIGABYTE);
         Long readCapacity = provisionedThroughput.getReadCapacityUnits();
         Long writeCapacity = provisionedThroughput.getWriteCapacityUnits();
-        if(readCapacity == 0L)
-            readCapacity = 500L;
-        if(writeCapacity == 0L)
-            writeCapacity = 500L;
-        if (writeCapacity == null) {
-            writeCapacity = 1L;
-        }
+
         if (readCapacity == null) {
             throw new NullReadCapacityException(
                     "Cannot scan with a null readCapacity provisioned throughput");
         }
+
+        if(readCapacity.equals(0L))
+            readCapacity = 500L;
+        if(writeCapacity == null || writeCapacity.equals(0L))
+            writeCapacity = 500L;
+
         double throughput = (readCapacity + 3 * writeCapacity) / 3000.0;
         return (int) (10 * Math.max(Math.ceil(throughput),
                 Math.ceil(tableSizeInGigabytes) / 10));

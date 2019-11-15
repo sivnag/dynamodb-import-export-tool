@@ -42,7 +42,8 @@ import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
  */
 public class CommandLineInterface {
 
-    private static final Long TARGET_WCU_DURING_REPLICA = 500L;
+    private static final Long SOURCE_RCU_DURING_REPLICA = 50L;
+    private static final Long TARGET_WCU_DURING_REPLICA = 50L;
     private static final Long TARGET_LOW_WCU = 5L;
     private static final Long TARGET_LOW_RCU = 10L;
 
@@ -134,6 +135,8 @@ public class CommandLineInterface {
             cmd.usage();
             return;
         }
+        boolean resetTargetWCU = false;
+        boolean resetSourceRCU = false;
         final String sourceEndpoint = params.getSourceEndpoint();
         final String destinationEndpoint = params.getDestinationEndpoint();
         final String destinationTable = params.getDestinationTable();
@@ -155,6 +158,31 @@ public class CommandLineInterface {
 
         TableDescription readTableDescription = sourceClient.describeTable(
                 sourceTable).getTable();
+
+        Long sourceReadCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+        Long sourceWriteCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+        if(sourceReadCapacity != null && sourceWriteCapacity != null)
+        {
+            if(sourceReadCapacity.equals(0L)){
+                LOGGER.info("source table is in on-demand mode...no need to increase RCU");
+            }
+            else if(sourceReadCapacity.compareTo(SOURCE_RCU_DURING_REPLICA) < 0){
+                LOGGER.info("source table read capacity = " + sourceReadCapacity + ". Needs update...");
+                UpdateTableRequest request = new UpdateTableRequest()
+                    .withTableName(sourceTable);
+                request.setProvisionedThroughput(new ProvisionedThroughput(SOURCE_RCU_DURING_REPLICA, sourceWriteCapacity));
+                UpdateTableResult response = sourceClient.updateTable(request);
+
+                waitTillTableUpdated(sourceClient, sourceTable, response);
+
+                DescribeTableResult res = sourceClient.describeTable(sourceTable);
+                Long modifiedSourceReadCapacity = res.getTable().getProvisionedThroughput().getReadCapacityUnits();
+                if(! SOURCE_RCU_DURING_REPLICA.equals(modifiedSourceReadCapacity))
+                    throw new Exception("Could not set " + SOURCE_RCU_DURING_REPLICA + " RCUs for " + sourceTable + ". Current RCU="+modifiedSourceReadCapacity);
+                resetSourceRCU = true;
+            }
+        }
+
         TableDescription writeTableDescription;
         try{
             writeTableDescription = destinationClient
@@ -186,6 +214,8 @@ public class CommandLineInterface {
                 writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
                 if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
                     throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
+
+                resetTargetWCU = true;
             }
         }catch(ResourceNotFoundException e){
             if(params.shouldCreateDestinationTableIfNotFound()){
@@ -224,6 +254,7 @@ public class CommandLineInterface {
                 writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
                 if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
                     throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
+                resetTargetWCU = true;
             }
             else
                 throw e;
@@ -265,33 +296,68 @@ public class CommandLineInterface {
             LOGGER.error("Invalid section parameter", e);
         }
 
-        Long readCapacity = TARGET_LOW_RCU;
-        Long writeCapacity = TARGET_LOW_WCU;
-        UpdateTableRequest request = new UpdateTableRequest()
-            .withTableName(destinationTable);
-        request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+        if(resetSourceRCU == true)
+        {
+            UpdateTableRequest request = new UpdateTableRequest()
+                .withTableName(sourceTable);
+            request.setProvisionedThroughput(new ProvisionedThroughput(sourceReadCapacity, sourceWriteCapacity));
 
-        try{
-            UpdateTableResult response = destinationClient.updateTable(request);
-            waitTillTableUpdated(destinationClient, destinationTable, response);
-        }catch(Exception e){
-            //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
-            //since replication operation is successful, this failure can be ignored at risk of paying higher bill
-            //till the higher provision is manually reduced at a later time!!!
-            LOGGER.warn("Exception while resetting lower RCU, WCU for " + destinationTable + " " + e);
+            try{
+                UpdateTableResult response = sourceClient.updateTable(request);
+                waitTillTableUpdated(sourceClient, sourceTable, response);
+            }catch(Exception e){
+                //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+                //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+                //till the higher provision is manually reduced at a later time!!!
+                LOGGER.warn("Exception while resetting RCU, WCU for " + sourceTable + " " + e);
+            }
         }
 
-        DescribeTableResult res = destinationClient.describeTable(destinationTable);
-        writeTableDescription = res.getTable();
-        readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-        writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(!writeCapacity.equals(TARGET_LOW_WCU) || !readCapacity.equals(TARGET_LOW_RCU)){
-            //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
-            //since replication operation is successful, this failure can be ignored at risk of paying higher bill
-            //till the higher provision is manually reduced at a later time!!!
-            String msg="Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable;
-            LOGGER.warn(msg);
-            //throw new Exception(msg);
+        {
+            DescribeTableResult res = sourceClient.describeTable(sourceTable);
+            readTableDescription = res.getTable();
+            Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+            Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+            if(!writeCapacity.equals(sourceWriteCapacity) || !readCapacity.equals(sourceReadCapacity)){
+                //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+                //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+                //till the higher provision is manually reduced at a later time!!!
+                String msg="Could not reset to " + sourceReadCapacity + " RCUs, " + sourceWriteCapacity + " WCUs for " + sourceTable;
+                LOGGER.warn(msg);
+                //throw new Exception(msg);
+            }
+        }
+
+        if(resetTargetWCU == true)
+        {
+            UpdateTableRequest request = new UpdateTableRequest()
+                .withTableName(destinationTable);
+            request.setProvisionedThroughput(new ProvisionedThroughput(TARGET_LOW_RCU, TARGET_LOW_WCU));
+
+            try{
+                UpdateTableResult response = destinationClient.updateTable(request);
+                waitTillTableUpdated(destinationClient, destinationTable, response);
+            }catch(Exception e){
+                //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+                //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+                //till the higher provision is manually reduced at a later time!!!
+                LOGGER.warn("Exception while resetting lower RCU, WCU for " + destinationTable + " " + e);
+            }
+        }
+
+        {
+            DescribeTableResult res = destinationClient.describeTable(destinationTable);
+            writeTableDescription = res.getTable();
+            Long readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+            Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+            if(!writeCapacity.equals(TARGET_LOW_WCU) || !readCapacity.equals(TARGET_LOW_RCU)){
+                //reducing provisioning has some limits (@see https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Limits.html)
+                //since replication operation is successful, this failure can be ignored at risk of paying higher bill
+                //till the higher provision is manually reduced at a later time!!!
+                String msg="Could not reset to " + TARGET_LOW_RCU + " RCUs, " + TARGET_LOW_WCU + " WCUs for " + destinationTable;
+                LOGGER.warn(msg);
+                //throw new Exception(msg);
+            }
         }
     }
 
