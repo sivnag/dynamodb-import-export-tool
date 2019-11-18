@@ -140,6 +140,11 @@ public class CommandLineInterface {
         final String sourceEndpoint = params.getSourceEndpoint();
         final String destinationEndpoint = params.getDestinationEndpoint();
         final String destinationTable = params.getDestinationTable();
+
+        boolean targetIsAFile = false;
+        if(destinationEndpoint.equals("HardDisk"))
+            targetIsAFile = true;
+
         final String sourceTable = params.getSourceTable();
         final double readThroughputRatio = params.getReadThroughputRatio();
         final double writeThroughputRatio = params.getWriteThroughputRatio();
@@ -147,14 +152,9 @@ public class CommandLineInterface {
         final boolean consistentScan = params.getConsistentScan();
 
         final ClientConfiguration sourceConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
-        final ClientConfiguration destinationConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
-
         final AmazonDynamoDBClient sourceClient = new AmazonDynamoDBClient(
                 new DefaultAWSCredentialsProviderChain(), sourceConfig);
-        final AmazonDynamoDBClient destinationClient = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain(), destinationConfig);
         sourceClient.setEndpoint(sourceEndpoint);
-        destinationClient.setEndpoint(destinationEndpoint);
 
         TableDescription readTableDescription = sourceClient.describeTable(
                 sourceTable).getTable();
@@ -183,82 +183,6 @@ public class CommandLineInterface {
             }
         }
 
-        TableDescription writeTableDescription;
-        try{
-            writeTableDescription = destinationClient
-                    .describeTable(destinationTable).getTable();
-
-            boolean updateRequired = false;
-            Long readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-            if(!readCapacity.equals(TARGET_LOW_RCU)){
-                LOGGER.info("target read capacity = " + readCapacity + ". Needs update");
-                readCapacity = TARGET_LOW_RCU;
-                updateRequired = true;
-            }
-            Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-            if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
-                LOGGER.info("target write capacity = " + writeCapacity + ". Needs update");
-                writeCapacity = TARGET_WCU_DURING_REPLICA;
-                updateRequired = true;
-            }
-
-            if(updateRequired){
-                UpdateTableRequest request = new UpdateTableRequest()
-                        .withTableName(destinationTable);
-                request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
-                UpdateTableResult response = destinationClient.updateTable(request);
-
-                waitTillTableUpdated(destinationClient, destinationTable, response);
-
-                DescribeTableResult res = destinationClient.describeTable(destinationTable);
-                writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
-                if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
-                    throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
-
-                resetTargetWCU = true;
-            }
-        }catch(ResourceNotFoundException e){
-            if(params.shouldCreateDestinationTableIfNotFound()){
-                LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
-                CreateTableRequest request = new CreateTableRequest()
-                    .withAttributeDefinitions(readTableDescription.getAttributeDefinitions())
-                    .withTableName(destinationTable)
-                    .withKeySchema(readTableDescription.getKeySchema());
-
-                Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-                if(!readCapacity.equals(TARGET_LOW_RCU))
-                    readCapacity = TARGET_LOW_RCU;
-                Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0)
-                    writeCapacity = TARGET_WCU_DURING_REPLICA;
-                request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
-
-                java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
-                if(gsid != null){
-                    java.util.List<GlobalSecondaryIndex> gsi = gsid.stream()
-                        .map(index -> GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(index))
-                        .collect(Collectors.toList());
-                        request.setGlobalSecondaryIndexes(gsi);
-                }
-                java.util.Collection<LocalSecondaryIndexDescription> lsid = readTableDescription.getLocalSecondaryIndexes();
-                if(lsid != null){
-                    java.util.List<LocalSecondaryIndex> lsi = lsid.stream()
-                        .map(index -> LocalSecondaryIndexDescriptionToLocalSecondaryIndex(index))
-                        .collect(Collectors.toList());
-                    request.setLocalSecondaryIndexes(lsi);
-                }
-
-                CreateTableResult response = destinationClient.createTable(request);
-                waitTillTableCreated(destinationClient, destinationTable, response);
-                writeTableDescription = response.getTableDescription();
-                writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
-                    throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
-                resetTargetWCU = true;
-            }
-            else
-                throw e;
-        }
         int numSegments = 10;
         try {
             numSegments = DynamoDBBootstrapWorker
@@ -268,17 +192,111 @@ public class CommandLineInterface {
             LOGGER.warn("Number of segments not specified - defaulting to "
                     + numSegments, e);
         }
-
         final double readThroughput = calculateThroughput(readTableDescription,
                 readThroughputRatio, true);
-        final double writeThroughput = calculateThroughput(
-                writeTableDescription, writeThroughputRatio, false);
+
+        AmazonDynamoDBClient destinationClient = null;
+        TableDescription writeTableDescription = null;
+        if(!targetIsAFile)
+        {
+            final ClientConfiguration destinationConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
+            destinationClient = new AmazonDynamoDBClient(
+                    new DefaultAWSCredentialsProviderChain(), destinationConfig);
+            destinationClient.setEndpoint(destinationEndpoint);
+
+            try{
+                writeTableDescription = destinationClient
+                        .describeTable(destinationTable).getTable();
+
+                boolean updateRequired = false;
+                Long readCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+                if(!readCapacity.equals(TARGET_LOW_RCU)){
+                    LOGGER.info("target read capacity = " + readCapacity + ". Needs update");
+                    readCapacity = TARGET_LOW_RCU;
+                    updateRequired = true;
+                }
+                Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
+                    LOGGER.info("target write capacity = " + writeCapacity + ". Needs update");
+                    writeCapacity = TARGET_WCU_DURING_REPLICA;
+                    updateRequired = true;
+                }
+
+                if(updateRequired){
+                    UpdateTableRequest request = new UpdateTableRequest()
+                            .withTableName(destinationTable);
+                    request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+                    UpdateTableResult response = destinationClient.updateTable(request);
+
+                    waitTillTableUpdated(destinationClient, destinationTable, response);
+
+                    DescribeTableResult res = destinationClient.describeTable(destinationTable);
+                    writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
+                    if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
+                        throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
+
+                    resetTargetWCU = true;
+                }
+            }catch(ResourceNotFoundException e){
+                if(params.shouldCreateDestinationTableIfNotFound()){
+                    LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
+                    CreateTableRequest request = new CreateTableRequest()
+                        .withAttributeDefinitions(readTableDescription.getAttributeDefinitions())
+                        .withTableName(destinationTable)
+                        .withKeySchema(readTableDescription.getKeySchema());
+
+                    Long readCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+                    if(!readCapacity.equals(TARGET_LOW_RCU))
+                        readCapacity = TARGET_LOW_RCU;
+                    Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                    if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0)
+                        writeCapacity = TARGET_WCU_DURING_REPLICA;
+                    request.setProvisionedThroughput(new ProvisionedThroughput(readCapacity, writeCapacity));
+
+                    java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
+                    if(gsid != null){
+                        java.util.List<GlobalSecondaryIndex> gsi = gsid.stream()
+                            .map(index -> GlobalSecondaryIndexDescriptionToGlobalSecondaryIndex(index))
+                            .collect(Collectors.toList());
+                            request.setGlobalSecondaryIndexes(gsi);
+                    }
+                    java.util.Collection<LocalSecondaryIndexDescription> lsid = readTableDescription.getLocalSecondaryIndexes();
+                    if(lsid != null){
+                        java.util.List<LocalSecondaryIndex> lsi = lsid.stream()
+                            .map(index -> LocalSecondaryIndexDescriptionToLocalSecondaryIndex(index))
+                            .collect(Collectors.toList());
+                        request.setLocalSecondaryIndexes(lsi);
+                    }
+
+                    CreateTableResult response = destinationClient.createTable(request);
+                    waitTillTableCreated(destinationClient, destinationTable, response);
+                    writeTableDescription = response.getTableDescription();
+                    writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                    if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
+                        throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable);
+                    resetTargetWCU = true;
+                }
+                else
+                    throw e;
+            }
+
+        }
 
         try {
             ExecutorService sourceExec = getSourceThreadPool(numSegments);
             ExecutorService destinationExec = getDestinationThreadPool(maxWriteThreads);
-            DynamoDBConsumer consumer = new DynamoDBConsumer(destinationClient,
-                    destinationTable, writeThroughput, destinationExec);
+
+            AbstractLogConsumer consumer = null;
+            if(targetIsAFile)
+            {
+                //
+            }
+            else{
+                final double writeThroughput = calculateThroughput(
+                        writeTableDescription, writeThroughputRatio, false);
+                consumer = new DynamoDBConsumer(destinationClient,
+                        destinationTable, writeThroughput, destinationExec);
+            }
 
             final DynamoDBBootstrapWorker worker = new DynamoDBBootstrapWorker(
                     sourceClient, readThroughput, sourceTable, sourceExec,
@@ -345,6 +363,7 @@ public class CommandLineInterface {
             }
         }
 
+        if(!targetIsAFile)
         {
             DescribeTableResult res = destinationClient.describeTable(destinationTable);
             writeTableDescription = res.getTable();
