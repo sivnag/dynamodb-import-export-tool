@@ -42,8 +42,8 @@ import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
  */
 public class CommandLineInterface {
 
-    private static final Long SOURCE_RCU_DURING_REPLICA = 50L;
-    private static final Long TARGET_WCU_DURING_REPLICA = 50L;
+    private static final Long SOURCE_RCU_DURING_REPLICA = 500L;
+    private static final Long TARGET_WCU_DURING_REPLICA = 500L;
     private static final Long TARGET_LOW_WCU = 5L;
     private static final Long TARGET_LOW_RCU = 10L;
 

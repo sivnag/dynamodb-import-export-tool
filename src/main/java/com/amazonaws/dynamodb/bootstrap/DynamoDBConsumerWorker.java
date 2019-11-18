@@ -62,10 +62,10 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
      */
     @Override
     public Void call() {
-        LOGGER.info("Consumer" + __ID + " about to batch write " + batch.getRequestItems().get(tableName).size() + " records");
+        //LOGGER.info("Consumer" + __ID + " about to batch write " + batch.getRequestItems().get(tableName).size() + " records");
         //List<ConsumedCapacity> batchResult = 
         runWithBackoff(batch);
-        LOGGER.info("Consumer" + __ID + " finished writing");
+        //LOGGER.info("Consumer" + __ID + " finished writing");
         /*Iterator<ConsumedCapacity> it = batchResult.iterator();
         int consumedCapacity = 0;
         while (it.hasNext()) {
@@ -116,7 +116,7 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
                     if (unprocessedItems != null)
                         req.setRequestItems(unprocessedItems);
                     try {
-                        LOGGER.info("consumer " + __ID + " going to sleep for " + exponentialBackoffTime + "mS");
+                        //LOGGER.info("consumer " + __ID + " going to sleep for " + exponentialBackoffTime + "mS");
                         Thread.sleep(exponentialBackoffTime);
                     } catch (InterruptedException ie) {
                         interrupted = true;
