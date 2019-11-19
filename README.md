@@ -19,6 +19,8 @@ The DynamoDB Import Export Tool is designed to perform parallel scans on the sou
 java -jar dynamodb-import-export-tool.jar
 
 --destinationEndpoint <destination_endpoint> // the DynamoDB endpoint where the destination table is located.
+// If destinationEndPoint is "HardDisk", then batches of source DynamoDB table scan results are written to harddisk
+// in current folder as multiple files with filenames like <destinationTable>\_<XXXX>.json
 
 --destinationTable <destination_table> // the destination table to write to.
 

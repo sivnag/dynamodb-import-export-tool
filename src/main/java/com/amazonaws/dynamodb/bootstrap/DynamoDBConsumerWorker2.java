@@ -18,6 +18,8 @@ import com.amazonaws.dynamodb.bootstrap.constants.BootstrapConstants;
 
 import com.amazonaws.services.dynamodbv2.model.AttributeValue;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Callable class that is used to write a batch of items to DynamoDB with exponential backoff.
  */
@@ -27,27 +29,35 @@ public class DynamoDBConsumerWorker2 implements Callable<Void> {
     private final String fileName;
     private static int ___ID = 0;
     private int __ID;
+    private static Object synchro = new Object();
 
     private static final Logger LOGGER = LogManager
             .getLogger(DynamoDBConsumerWorker2.class);
 
     /**
-     * Callable class that when called will try to write a batch to a DynamoDB
-     * table. If the write returns unprocessed items it will exponentially back
-     * off until it succeeds.
+     * Callable class that when called will try to write a batch to a file <filename><__ID>.json
+        in current working dir
      */
     public DynamoDBConsumerWorker2(List<Map<String, AttributeValue>> batch, String fileName) {
-        this.__ID = ++DynamoDBConsumerWorker2.___ID;
+        synchronized(synchro){
+            this.__ID = ++DynamoDBConsumerWorker2.___ID;
+        }
         this.batch = batch;
         this.fileName = fileName;
     }
 
     /**
-     * Batch writes the write request to the DynamoDB endpoint and THEN acquires
-     * permits equal to the consumed capacity of the write.
+     * writes the batch of items to a file <filename><__ID>.json
+        in current working dir
      */
     @Override
-    public Void call() {
+    public Void call() throws JsonProcessingException, java.io.IOException{
+        ObjectMapper mapper = new ObjectMapper();
+
+        mapper.addMixInAnnotations(AttributeValue.class,
+                AttributeValueMixIn.class);
+
+        mapper.writeValue(new java.io.File(fileName + "_" + __ID + ".json"), batch);
         return null;
     }
 

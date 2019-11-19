@@ -141,9 +141,13 @@ public class CommandLineInterface {
         final String destinationEndpoint = params.getDestinationEndpoint();
         final String destinationTable = params.getDestinationTable();
 
-        boolean targetIsAFile = false;
-        if(destinationEndpoint.equals("HardDisk"))
-            targetIsAFile = true;
+        LOGGER.info("destinationEndpoint = " + destinationEndpoint);
+        boolean targetIsHardDisk = false;
+        if(destinationEndpoint.equals("HardDisk")){
+            LOGGER.info("dest is HardDisk");
+            targetIsHardDisk = true;
+        }
+        LOGGER.info("targetIsHardDisk = " + targetIsHardDisk);
 
         final String sourceTable = params.getSourceTable();
         final double readThroughputRatio = params.getReadThroughputRatio();
@@ -197,7 +201,7 @@ public class CommandLineInterface {
 
         AmazonDynamoDBClient destinationClient = null;
         TableDescription writeTableDescription = null;
-        if(!targetIsAFile)
+        if(!targetIsHardDisk)
         {
             final ClientConfiguration destinationConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
             destinationClient = new AmazonDynamoDBClient(
@@ -287,9 +291,9 @@ public class CommandLineInterface {
             ExecutorService destinationExec = getDestinationThreadPool(maxWriteThreads);
 
             AbstractLogConsumer consumer = null;
-            if(targetIsAFile)
+            if(targetIsHardDisk)
             {
-                //
+                consumer = new DynamoDBConsumer2(destinationTable, destinationExec);
             }
             else{
                 final double writeThroughput = calculateThroughput(
@@ -363,7 +367,7 @@ public class CommandLineInterface {
             }
         }
 
-        if(!targetIsAFile)
+        if(!targetIsHardDisk)
         {
             DescribeTableResult res = destinationClient.describeTable(destinationTable);
             writeTableDescription = res.getTable();
