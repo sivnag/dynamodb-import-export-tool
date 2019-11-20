@@ -35,14 +35,18 @@ java -jar dynamodb-import-export-tool.jar
 --sourceTable <source_table>// the source table to read from.
 
 --readThroughputRatio <ratio_in_decimal> // the ratio of read throughput to consume from the source table.
+//ignored when sourceEndpoint is "HardDisk"
 
 --writeThroughputRatio <ratio_in_decimal> // the ratio of write throughput to consume from the destination table.
+//ignored when destinationEndPoint is "HardDisk"
 
 --maxWriteThreads <numWriteThreads> // (Optional, default=128 * Available_Processors) Maximum number of write threads to create.
 
 --totalSections <numSections> // (Optional, default=1) Total number of sections to split the bootstrap into. Each application will only scan and write one section.
+//ignored when sourceEndpoint is "HardDisk"
 
 --section <sectionSequence> // (Optional, default=0) section to read and write. Only will scan this one section of all sections, [0...totalSections-1].
+//ignored when sourceEndpoint is "HardDisk"
 
 --consistentScan <boolean> // (Optional, default=false) indicates whether consistent scan should be used when reading from the source table.
 

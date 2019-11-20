@@ -170,6 +170,12 @@ public class CommandLineInterface {
             System.exit(1);
         }
 
+        if(sourceIsHardDisk && params.getMaxFileID() == 0)
+        {
+            LOGGER.info("please provide --max-file-id when source is HardDisk!");
+            System.exit(1);
+        }
+
         final String destinationTable = params.getDestinationTable();
         final String sourceTable = params.getSourceTable();
         final double readThroughputRatio = params.getReadThroughputRatio();
@@ -333,7 +339,7 @@ public class CommandLineInterface {
 
             if(sourceIsHardDisk)
             {
-                worker = new DynamoDBBootstrapWorker2(sourceTable, sourceExec);
+                worker = new DynamoDBBootstrapWorker2(params.getMaxFileID(), numSegments, sourceTable, sourceExec);
             }
             else
             {
@@ -373,6 +379,7 @@ public class CommandLineInterface {
             }
         }
 
+        if(!sourceIsHardDisk)
         {
             DescribeTableResult res = sourceClient.describeTable(sourceTable);
             readTableDescription = res.getTable();

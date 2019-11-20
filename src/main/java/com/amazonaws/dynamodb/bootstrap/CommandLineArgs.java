@@ -108,4 +108,12 @@ public class CommandLineArgs {
     public boolean getConsistentScan() {
         return consistentScan;
     }
+
+    public static final String MAX_FILE_ID = "--max-file-id";
+    @Parameter(names = MAX_FILE_ID, description = "when sourceEndpoint is 'HardDisk' this option specifies the maximum file ID such that <sourceTable>_<max-file-id>.json exists in current working directory", required = false)
+    private int maxFileID = 0;
+
+    public int getMaxFileID() {
+        return maxFileID;
+    }
 }
