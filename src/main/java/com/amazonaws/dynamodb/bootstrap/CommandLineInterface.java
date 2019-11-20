@@ -137,10 +137,17 @@ public class CommandLineInterface {
         }
         boolean resetTargetWCU = false;
         boolean resetSourceRCU = false;
+        
         final String sourceEndpoint = params.getSourceEndpoint();
-        final String destinationEndpoint = params.getDestinationEndpoint();
-        final String destinationTable = params.getDestinationTable();
+        LOGGER.info("sourceEndpoint = " + sourceEndpoint);
+        boolean sourceIsHardDisk = false;
+        if(sourceEndpoint.equals("HardDisk")){
+            LOGGER.info("source is HardDisk");
+            sourceIsHardDisk = true;
+        }
+        LOGGER.info("sourceIsHardDisk = " + sourceIsHardDisk);
 
+        final String destinationEndpoint = params.getDestinationEndpoint();
         LOGGER.info("destinationEndpoint = " + destinationEndpoint);
         boolean targetIsHardDisk = false;
         if(destinationEndpoint.equals("HardDisk")){
@@ -149,55 +156,68 @@ public class CommandLineInterface {
         }
         LOGGER.info("targetIsHardDisk = " + targetIsHardDisk);
 
+        if(sourceIsHardDisk && targetIsHardDisk)
+        {
+            LOGGER.info("both source and destination cannot be HardDisk!");
+            System.exit(1);
+        }
+
+        final String destinationTable = params.getDestinationTable();
         final String sourceTable = params.getSourceTable();
         final double readThroughputRatio = params.getReadThroughputRatio();
         final double writeThroughputRatio = params.getWriteThroughputRatio();
         final int maxWriteThreads = params.getMaxWriteThreads();
         final boolean consistentScan = params.getConsistentScan();
 
-        final ClientConfiguration sourceConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
-        final AmazonDynamoDBClient sourceClient = new AmazonDynamoDBClient(
-                new DefaultAWSCredentialsProviderChain(), sourceConfig);
-        sourceClient.setEndpoint(sourceEndpoint);
-
-        TableDescription readTableDescription = sourceClient.describeTable(
-                sourceTable).getTable();
-
-        Long sourceReadCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
-        Long sourceWriteCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-        if(sourceReadCapacity != null && sourceWriteCapacity != null)
-        {
-            if(sourceReadCapacity.equals(0L)){
-                LOGGER.info("source table is in on-demand mode...no need to increase RCU");
-            }
-            else if(sourceReadCapacity.compareTo(SOURCE_RCU_DURING_REPLICA) < 0){
-                LOGGER.info("source table read capacity = " + sourceReadCapacity + ". Needs update...");
-                UpdateTableRequest request = new UpdateTableRequest()
-                    .withTableName(sourceTable);
-                request.setProvisionedThroughput(new ProvisionedThroughput(SOURCE_RCU_DURING_REPLICA, sourceWriteCapacity));
-                UpdateTableResult response = sourceClient.updateTable(request);
-
-                waitTillTableUpdated(sourceClient, sourceTable, response);
-
-                DescribeTableResult res = sourceClient.describeTable(sourceTable);
-                Long modifiedSourceReadCapacity = res.getTable().getProvisionedThroughput().getReadCapacityUnits();
-                if(! SOURCE_RCU_DURING_REPLICA.equals(modifiedSourceReadCapacity))
-                    throw new Exception("Could not set " + SOURCE_RCU_DURING_REPLICA + " RCUs for " + sourceTable + ". Current RCU="+modifiedSourceReadCapacity);
-                resetSourceRCU = true;
-            }
-        }
-
+        TableDescription readTableDescription = null;
+        AmazonDynamoDBClient sourceClient = null;
         int numSegments = 10;
-        try {
-            numSegments = DynamoDBBootstrapWorker
-                    .getNumberOfSegments(readTableDescription);
-            LOGGER.info("numSegments = " + numSegments);
-        } catch (NullReadCapacityException e) {
-            LOGGER.warn("Number of segments not specified - defaulting to "
-                    + numSegments, e);
+        Long sourceReadCapacity = 0L;
+        Long sourceWriteCapacity = 0L;
+
+        if(!sourceIsHardDisk)
+        {
+            final ClientConfiguration sourceConfig = new ClientConfiguration().withMaxConnections(BootstrapConstants.MAX_CONN_SIZE);
+            sourceClient = new AmazonDynamoDBClient(
+                    new DefaultAWSCredentialsProviderChain(), sourceConfig);
+            sourceClient.setEndpoint(sourceEndpoint);
+
+            readTableDescription = sourceClient.describeTable(
+                    sourceTable).getTable();
+
+            sourceReadCapacity = readTableDescription.getProvisionedThroughput().getReadCapacityUnits();
+            sourceWriteCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+            if(sourceReadCapacity != null && sourceWriteCapacity != null)
+            {
+                if(sourceReadCapacity.equals(0L)){
+                    LOGGER.info("source table is in on-demand mode...no need to increase RCU");
+                }
+                else if(sourceReadCapacity.compareTo(SOURCE_RCU_DURING_REPLICA) < 0){
+                    LOGGER.info("source table read capacity = " + sourceReadCapacity + ". Needs update...");
+                    UpdateTableRequest request = new UpdateTableRequest()
+                        .withTableName(sourceTable);
+                    request.setProvisionedThroughput(new ProvisionedThroughput(SOURCE_RCU_DURING_REPLICA, sourceWriteCapacity));
+                    UpdateTableResult response = sourceClient.updateTable(request);
+
+                    waitTillTableUpdated(sourceClient, sourceTable, response);
+
+                    DescribeTableResult res = sourceClient.describeTable(sourceTable);
+                    Long modifiedSourceReadCapacity = res.getTable().getProvisionedThroughput().getReadCapacityUnits();
+                    if(! SOURCE_RCU_DURING_REPLICA.equals(modifiedSourceReadCapacity))
+                        throw new Exception("Could not set " + SOURCE_RCU_DURING_REPLICA + " RCUs for " + sourceTable + ". Current RCU="+modifiedSourceReadCapacity);
+                    resetSourceRCU = true;
+                }
+            }
+
+            try {
+                numSegments = DynamoDBBootstrapWorker
+                        .getNumberOfSegments(readTableDescription);
+                LOGGER.info("numSegments = " + numSegments);
+            } catch (NullReadCapacityException e) {
+                LOGGER.warn("Number of segments not specified - defaulting to "
+                        + numSegments, e);
+            }
         }
-        final double readThroughput = calculateThroughput(readTableDescription,
-                readThroughputRatio, true);
 
         AmazonDynamoDBClient destinationClient = null;
         TableDescription writeTableDescription = null;
@@ -291,6 +311,7 @@ public class CommandLineInterface {
             ExecutorService destinationExec = getDestinationThreadPool(maxWriteThreads);
 
             AbstractLogConsumer consumer = null;
+            AbstractLogProvider worker = null;
             if(targetIsHardDisk)
             {
                 consumer = new DynamoDBConsumer2(destinationTable, destinationExec);
@@ -302,9 +323,18 @@ public class CommandLineInterface {
                         destinationTable, writeThroughput, destinationExec);
             }
 
-            final DynamoDBBootstrapWorker worker = new DynamoDBBootstrapWorker(
-                    sourceClient, readThroughput, sourceTable, sourceExec,
-                    params.getSection(), params.getTotalSections(), numSegments, consistentScan);
+            if(sourceIsHardDisk)
+            {
+                worker = new DynamoDBBootstrapWorker2(sourceTable, sourceExec);
+            }
+            else
+            {
+                final double readThroughput = calculateThroughput(readTableDescription,
+                    readThroughputRatio, true);
+                worker = new DynamoDBBootstrapWorker(
+                        sourceClient, readThroughput, sourceTable, sourceExec,
+                        params.getSection(), params.getTotalSections(), numSegments, consistentScan);
+            }
 
             LOGGER.info("Starting transfer...");
             worker.pipe(consumer);

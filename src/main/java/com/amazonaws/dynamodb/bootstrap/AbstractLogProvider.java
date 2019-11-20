@@ -32,7 +32,7 @@ public abstract class AbstractLogProvider {
      * write the results.
      */
     public abstract void pipe(final AbstractLogConsumer consumer)
-            throws ExecutionException, InterruptedException;
+            throws ExecutionException, InterruptedException, java.io.IOException;
 
     /**
      * Shuts the thread pool down.
