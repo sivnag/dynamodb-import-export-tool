@@ -162,6 +162,14 @@ public class CommandLineInterface {
             System.exit(1);
         }
 
+        if(sourceIsHardDisk && params.shouldCreateDestinationTableIfNotFound())
+        {
+            //creation of taretTable requires some knowledge about source table
+            //which we don't have at present when source is HardDisk
+            LOGGER.info("createDestinationTableIfNotFound flag is not supported when source is HardDisk!");
+            System.exit(1);
+        }
+
         final String destinationTable = params.getDestinationTable();
         final String sourceTable = params.getSourceTable();
         final double readThroughputRatio = params.getReadThroughputRatio();
