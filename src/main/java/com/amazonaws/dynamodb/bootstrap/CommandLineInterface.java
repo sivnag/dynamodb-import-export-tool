@@ -269,7 +269,8 @@ public class CommandLineInterface {
                     waitTillTableUpdated(destinationClient, destinationTable, response);
 
                     DescribeTableResult res = destinationClient.describeTable(destinationTable);
-                    writeCapacity = res.getTable().getProvisionedThroughput().getWriteCapacityUnits();
+                    writeTableDescription = res.getTable();
+                    writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
                     if(!writeCapacity.equals(TARGET_WCU_DURING_REPLICA))
                         throw new Exception("Could not set " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
 
@@ -333,6 +334,7 @@ public class CommandLineInterface {
             else{
                 final double writeThroughput = calculateThroughput(
                         writeTableDescription, writeThroughputRatio, false);
+                LOGGER.info("DynamoDBConsumer ratelimit = " + writeThroughput);
                 consumer = new DynamoDBConsumer(destinationClient,
                         destinationTable, writeThroughput, destinationExec);
             }
@@ -345,6 +347,7 @@ public class CommandLineInterface {
             {
                 final double readThroughput = calculateThroughput(readTableDescription,
                     readThroughputRatio, true);
+                LOGGER.info("DynamoDBBootstrapWorker ratelimit = " + readThroughput);
                 worker = new DynamoDBBootstrapWorker(
                         sourceClient, readThroughput, sourceTable, sourceExec,
                         params.getSection(), params.getTotalSections(), numSegments, consistentScan);
