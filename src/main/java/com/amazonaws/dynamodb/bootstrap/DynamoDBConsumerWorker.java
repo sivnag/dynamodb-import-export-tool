@@ -88,8 +88,11 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
         Map<String, List<WriteRequest>> unprocessedItems = null;
         boolean interrupted = false;
         boolean throughputExceeded = false;
+        int unprocessedItemsCount = 0;
+
         try {
             do {
+                unprocessedItemsCount = 0;
                 throughputExceeded = false;
                 writeItemResult = null;
                 unprocessedItems = null;
@@ -109,12 +112,21 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
                     while (it.hasNext()) {
                         consumedCapacity += it.next().getCapacityUnits().intValue();
                     }
+                    //LOGGER.info("consumer " + __ID + " rateLimiter.acquire(" + consumedCapacity + ")");
                     rateLimiter.acquire(consumedCapacity);
+                    //LOGGER.info("consumer " + __ID + " rateLimiter.acquired");
                 }
 
-                if(unprocessedItems != null || throughputExceeded){
-                    if (unprocessedItems != null)
-                        req.setRequestItems(unprocessedItems);
+                if(unprocessedItems != null){
+                    List<WriteRequest> items = unprocessedItems.get(tableName);
+                    if(items != null){
+                        unprocessedItemsCount = items.size();
+                        if(unprocessedItemsCount > 0)
+                            req.setRequestItems(unprocessedItems);
+                    }
+                }
+
+                if(throughputExceeded || unprocessedItemsCount > 0){
                     try {
                         //LOGGER.info("consumer " + __ID + " going to sleep for " + exponentialBackoffTime + "mS");
                         Thread.sleep(exponentialBackoffTime);
@@ -127,7 +139,7 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
                         }
                     }
                 }
-            } while (throughputExceeded || (unprocessedItems != null && unprocessedItems.get(tableName) != null));
+            } while (throughputExceeded || unprocessedItemsCount > 0);
             //return consumedCapacities;
         }catch(Exception e){
             LOGGER.warn("Consumer " + __ID + "died facing exception " + e);
