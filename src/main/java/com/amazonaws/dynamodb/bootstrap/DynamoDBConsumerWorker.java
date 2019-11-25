@@ -126,7 +126,7 @@ public class DynamoDBConsumerWorker implements Callable<Void> {
                     }
                 }
 
-                if(throughputExceeded || unprocessedItemsCount > 0){
+                if(throughputExceeded){// || unprocessedItemsCount > 0){
                     try {
                         //LOGGER.info("consumer " + __ID + " going to sleep for " + exponentialBackoffTime + "mS");
                         Thread.sleep(exponentialBackoffTime);
