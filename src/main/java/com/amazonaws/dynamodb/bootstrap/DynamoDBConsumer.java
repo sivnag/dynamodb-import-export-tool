@@ -110,7 +110,7 @@ public class DynamoDBConsumer extends AbstractLogConsumer {
             batches.add(req);
             ++k;
         }
-        LOGGER.info("split " + j + " records into " + k + " batches");
+        //LOGGER.info("split " + j + " records into " + k + " batches");
         return batches;
     }
 }
