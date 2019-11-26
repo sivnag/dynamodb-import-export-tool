@@ -49,7 +49,7 @@ public class CommandLineInterface {
     private static final Long TARGET_LOW_RCU = 10L;
 
     /**
-     * Logger for the DynamoDBBootstrapWorker.
+     * Logger for the CommandLineInterface.
      */
     private static final Logger LOGGER = LogManager
             .getLogger(CommandLineInterface.class);
@@ -186,7 +186,7 @@ public class CommandLineInterface {
 
         TableDescription readTableDescription = null;
         AmazonDynamoDBClient sourceClient = null;
-        int numSegments = 10;
+        int numSegments = params.getNumSegments();
         Long sourceReadCapacity = 0L;
         Long sourceWriteCapacity = 0L;
         Long targetReadCapacity = 0L;
@@ -227,11 +227,14 @@ public class CommandLineInterface {
             }
 
             try {
-                numSegments = DynamoDBBootstrapWorker
-                        .getNumberOfSegments(readTableDescription);
+                if(numSegments == 0){
+                    numSegments = DynamoDBBootstrapWorker
+                            .getNumberOfSegments(readTableDescription);
+                }
                 LOGGER.info("numSegments = " + numSegments);
             } catch (NullReadCapacityException e) {
-                LOGGER.warn("Number of segments not specified - defaulting to "
+                numSegments = 10;
+                LOGGER.warn("Number of segments could not be estimated - defaulting to "
                         + numSegments, e);
             }
         }
@@ -249,7 +252,6 @@ public class CommandLineInterface {
                 writeTableDescription = destinationClient
                         .describeTable(destinationTable).getTable();
 
-                boolean updateRequired = false;
                 targetReadCapacity = writeTableDescription.getProvisionedThroughput().getReadCapacityUnits();
                 targetWriteCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
                 if(targetReadCapacity == null || targetWriteCapacity == null)
@@ -260,14 +262,9 @@ public class CommandLineInterface {
                 }
                 else if(targetWriteCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
                     LOGGER.info("target write capacity = " + targetWriteCapacity + ". Needs update");
-                    targetWriteCapacity = TARGET_WCU_DURING_REPLICA;
-                    updateRequired = true;
-                }
-
-                if(updateRequired){
                     UpdateTableRequest request = new UpdateTableRequest()
                             .withTableName(destinationTable);
-                    request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, targetWriteCapacity));
+                    request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, TARGET_WCU_DURING_REPLICA));
                     UpdateTableResult response = destinationClient.updateTable(request);
 
                     waitTillTableUpdated(destinationClient, destinationTable, response);
@@ -279,7 +276,9 @@ public class CommandLineInterface {
                         throw new Exception("Could not set at least " + TARGET_WCU_DURING_REPLICA + " WCUs for " + destinationTable + ". Current WCU="+writeCapacity);
 
                     resetTargetWCU = true;
+
                 }
+
             }catch(ResourceNotFoundException e){
                 if(params.shouldCreateDestinationTableIfNotFound()){
                     LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
@@ -293,14 +292,14 @@ public class CommandLineInterface {
                         targetReadCapacity = TARGET_LOW_RCU;
                     else
                         targetReadCapacity = readCapacity;
-                    Long writeCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
-                    if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
-                        targetWriteCapacity = TARGET_WCU_DURING_REPLICA;
+                    targetWriteCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                    if(targetWriteCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
+                        request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, TARGET_WCU_DURING_REPLICA));
                         resetTargetWCU = true;
                     }
                     else
-                        targetWriteCapacity = writeCapacity;
-                    request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, targetWriteCapacity));
+                        request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, targetWriteCapacity));
+                    
 
                     java.util.Collection<GlobalSecondaryIndexDescription> gsid = readTableDescription.getGlobalSecondaryIndexes();
                     if(gsid != null){
@@ -320,7 +319,7 @@ public class CommandLineInterface {
                     CreateTableResult response = destinationClient.createTable(request);
                     waitTillTableCreated(destinationClient, destinationTable, response);
                     writeTableDescription = response.getTableDescription();
-                    writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                    Long writeCapacity = writeTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
                     if(writeCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0)
                         throw new Exception("Could not create table " + destinationTable + " with at least " + TARGET_WCU_DURING_REPLICA + " WCUs");
                 }
