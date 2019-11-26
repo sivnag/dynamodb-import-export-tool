@@ -109,6 +109,14 @@ public class CommandLineArgs {
         return consistentScan;
     }
 
+    public static final String NUM_SEGMENTS = "--numSegments";
+    @Parameter(names = NUM_SEGMENTS, description = "total number of segments to be used in parallel scan of table", required = false)
+    private int numSegments = 0;
+
+    public int getNumSegments() {
+        return numSegments;
+    }
+
     public static final String MAX_FILE_ID = "--max-file-id";
     @Parameter(names = MAX_FILE_ID, description = "when sourceEndpoint is 'HardDisk' this option specifies the maximum file ID such that <sourceTable>_<max-file-id>.json exists in current working directory", required = false)
     private int maxFileID = 0;

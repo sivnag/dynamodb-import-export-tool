@@ -48,6 +48,8 @@ java -jar dynamodb-import-export-tool.jar
 --section <sectionSequence> // (Optional, default=0) section to read and write. Only will scan this one section of all sections, [0...totalSections-1].
 //ignored when sourceEndpoint is "HardDisk"
 
+--numSegments <number_of_segments> //(Optional, default=calculated based on source table RCU & size in GB) used in parallel scan request.
+
 --consistentScan <boolean> // (Optional, default=false) indicates whether consistent scan should be used when reading from the source table.
 
 > **NOTE**: To split the replication process across multiple machines, simply use the totalSections & section command line arguments, where each machine will run one section out of [0 ... totalSections-1].
