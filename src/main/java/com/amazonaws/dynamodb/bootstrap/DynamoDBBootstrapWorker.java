@@ -35,7 +35,7 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
     private final boolean consistentScan;
 
     private static final Logger LOGGER = LogManager
-            .getLogger(DynamoDBConsumerWorker.class);
+            .getLogger(DynamoDBBootstrapWorker.class);
 
     /**
      * Creates the DynamoDBBootstrapWorker, calculates the number of segments a
