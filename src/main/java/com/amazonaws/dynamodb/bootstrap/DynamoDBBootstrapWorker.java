@@ -35,7 +35,7 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
     private final boolean consistentScan;
 
     private static final Logger LOGGER = LogManager
-            .getLogger(DynamoDBConsumerWorker.class);
+            .getLogger(DynamoDBBootstrapWorker.class);
 
     /**
      * Creates the DynamoDBBootstrapWorker, calculates the number of segments a
@@ -96,7 +96,7 @@ public class DynamoDBBootstrapWorker extends AbstractLogProvider {
      * consumer writing the results.
      */
     public void pipe(final AbstractLogConsumer consumer)
-            throws ExecutionException, InterruptedException {
+            throws ExecutionException, InterruptedException, java.io.IOException {
         final DynamoDBTableScan scanner = new DynamoDBTableScan(rateLimit,
                 client);
 

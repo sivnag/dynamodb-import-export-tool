@@ -18,27 +18,37 @@ The DynamoDB Import Export Tool is designed to perform parallel scans on the sou
 
 java -jar dynamodb-import-export-tool.jar
 
---destinationEndpoint <destination_endpoint> // the DynamoDB endpoint where the destination table is located.
+--destinationEndpoint <destination_endpoint> // the DynamoDB endpoint where the destination table is located. 
 // If destinationEndPoint is "HardDisk", then batches of source DynamoDB table scan results are written to harddisk
 // in current folder as multiple files with filenames like <destinationTable>\_<XXXX>.json
 
 --destinationTable <destination_table> // the destination table to write to.
 
---createDestinationTableIfNotFound <boolean> // (Optional, default=false) if destinationTable is not found in destinationEndpoint, then, create destinationTable based on sourceTable
+--createDestinationTableIfNotFound <boolean> // (Optional, default=false) if destinationTable is not found in destinationEndpoint, then, create destinationTable based on sourceTable.
+// This flag is not supported when sourceEndpoint is "HardDisk"
 
 --sourceEndpoint <source_endpoint> // the endpoint where the source table is located.
+// If sourceEndpoint is "HardDisk", then previously downloaded DynamoDB table scan results are read from harddisk
+// in current folder as multiple files with filenames like <sourceTable>\_<XXXX>.json
+// and uploaded to destination
 
 --sourceTable <source_table>// the source table to read from.
 
 --readThroughputRatio <ratio_in_decimal> // the ratio of read throughput to consume from the source table.
+//ignored when sourceEndpoint is "HardDisk"
 
 --writeThroughputRatio <ratio_in_decimal> // the ratio of write throughput to consume from the destination table.
+//ignored when destinationEndPoint is "HardDisk"
 
 --maxWriteThreads <numWriteThreads> // (Optional, default=128 * Available_Processors) Maximum number of write threads to create.
 
 --totalSections <numSections> // (Optional, default=1) Total number of sections to split the bootstrap into. Each application will only scan and write one section.
+//ignored when sourceEndpoint is "HardDisk"
 
 --section <sectionSequence> // (Optional, default=0) section to read and write. Only will scan this one section of all sections, [0...totalSections-1].
+//ignored when sourceEndpoint is "HardDisk"
+
+--numSegments <number_of_segments> //(Optional, default=calculated based on source table RCU & size in GB) used in parallel scan request.
 
 --consistentScan <boolean> // (Optional, default=false) indicates whether consistent scan should be used when reading from the source table.
 
