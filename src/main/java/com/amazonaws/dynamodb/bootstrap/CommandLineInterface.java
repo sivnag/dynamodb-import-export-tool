@@ -44,7 +44,7 @@ import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
 public class CommandLineInterface {
 
     private static final Long SOURCE_RCU_DURING_REPLICA = 500L;
-    private static final Long TARGET_WCU_DURING_REPLICA = 500L;
+    private static final Long TARGET_WCU_DURING_REPLICA = 5000L;
     private static final Long TARGET_LOW_WCU = 5L;
     private static final Long TARGET_LOW_RCU = 10L;
 
@@ -443,13 +443,15 @@ public class CommandLineInterface {
         if (read) {
             result = tableDescription.getProvisionedThroughput()
                     .getReadCapacityUnits() * throughputRatio;
+            if(result == 0)
+                result = SOURCE_RCU_DURING_REPLICA * throughputRatio;
         }
         else {
             result = tableDescription.getProvisionedThroughput()
                 .getWriteCapacityUnits() * throughputRatio;
+            if(result == 0)
+                result = TARGET_WCU_DURING_REPLICA * throughputRatio;
         }
-        if(result == 0)
-            result = 500 * throughputRatio;
 
         return result;
     }
