@@ -406,7 +406,8 @@ public class CommandLineInterface {
         {
             UpdateTableRequest request = new UpdateTableRequest()
                 .withTableName(destinationTable);
-            request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, targetWriteCapacity));
+            request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity>0?targetReadCapacity:TARGET_LOW_RCU,
+                targetWriteCapacity > 0?targetWriteCapacity:TARGET_LOW_WCU));
 
             try{
                 UpdateTableResult response = destinationClient.updateTable(request);
