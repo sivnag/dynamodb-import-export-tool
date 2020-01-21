@@ -45,8 +45,8 @@ public class CommandLineInterface {
 
     private static final Long SOURCE_RCU_DURING_REPLICA = 500L;
     private static final Long TARGET_WCU_DURING_REPLICA = 5000L;
-    private static final Long TARGET_LOW_WCU = 5L;
-    private static final Long TARGET_LOW_RCU = 10L;
+    private static final Long TARGET_LOW_WCU = 25L;
+    private static final Long TARGET_LOW_RCU = 25L;
 
     /**
      * Logger for the CommandLineInterface.
