@@ -43,8 +43,8 @@ import com.amazonaws.services.dynamodbv2.model.ResourceNotFoundException;
  */
 public class CommandLineInterface {
 
-    private static final Long SOURCE_RCU_DURING_REPLICA = 500L;
-    private static final Long TARGET_WCU_DURING_REPLICA = 5000L;
+    private static Long SOURCE_RCU_DURING_REPLICA = 500L;
+    private static Long TARGET_WCU_DURING_REPLICA = 500L;
     private static final Long TARGET_LOW_WCU = 25L;
     private static final Long TARGET_LOW_RCU = 25L;
 
@@ -136,6 +136,10 @@ public class CommandLineInterface {
             cmd.usage();
             return;
         }
+
+        SOURCE_RCU_DURING_REPLICA = params.getMinSourceRCU();
+        TARGET_WCU_DURING_REPLICA = params.getMinTargetWCU();
+
         boolean resetTargetWCU = false;
         boolean resetSourceRCU = false;
         
@@ -281,6 +285,8 @@ public class CommandLineInterface {
 
             }catch(ResourceNotFoundException e){
                 if(params.shouldCreateDestinationTableIfNotFound()){
+                    if(sourceIsHardDisk)
+                        throw new Exception("could not create missing table. source table description not available when source is harddisk");
                     LOGGER.warn("destination table " + destinationTable + " not found. Creating using source table description...");
                     CreateTableRequest request = new CreateTableRequest()
                         .withAttributeDefinitions(readTableDescription.getAttributeDefinitions())
@@ -293,6 +299,9 @@ public class CommandLineInterface {
                     else
                         targetReadCapacity = readCapacity;
                     targetWriteCapacity = readTableDescription.getProvisionedThroughput().getWriteCapacityUnits();
+                    if(targetWriteCapacity.equals(0L))
+                        targetWriteCapacity = TARGET_LOW_WCU;
+
                     if(targetWriteCapacity.compareTo(TARGET_WCU_DURING_REPLICA) < 0){
                         request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity, TARGET_WCU_DURING_REPLICA));
                         resetTargetWCU = true;
@@ -406,8 +415,8 @@ public class CommandLineInterface {
         {
             UpdateTableRequest request = new UpdateTableRequest()
                 .withTableName(destinationTable);
-            request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity>0?targetReadCapacity:TARGET_LOW_RCU,
-                targetWriteCapacity > 0?targetWriteCapacity:TARGET_LOW_WCU));
+            request.setProvisionedThroughput(new ProvisionedThroughput(targetReadCapacity.equals(0L)?TARGET_LOW_RCU:targetReadCapacity,
+                targetWriteCapacity.equals(0L)?TARGET_LOW_WCU:targetWriteCapacity));
 
             try{
                 UpdateTableResult response = destinationClient.updateTable(request);

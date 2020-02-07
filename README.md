@@ -52,6 +52,12 @@ java -jar dynamodb-import-export-tool.jar
 
 --consistentScan <boolean> // (Optional, default=false) indicates whether consistent scan should be used when reading from the source table.
 
+--max-file-id <int> // (Optional, default=0) when sourceEndpoint is 'HardDisk' this option specifies the maximum file ID such that sourceTable_max-file-id.json exists in current working directory
+
+--min-source-rcu-during-replica <long> // (Optional, default = 500), when sourceEndPoint is not 'HardDisk' this option specifies minimum RCU to be provisioned for source table if it is not in on-demand mode 
+
+--min-target-wcu-during-replica <long> // (Optional, default = 500), when targetEndPoint is not 'HardDisk' this option specifies minimum WCU to be provisioned for target table if it is not in on-demand mode
+
 > **NOTE**: To split the replication process across multiple machines, simply use the totalSections & section command line arguments, where each machine will run one section out of [0 ... totalSections-1].
 
 ## Using the API
