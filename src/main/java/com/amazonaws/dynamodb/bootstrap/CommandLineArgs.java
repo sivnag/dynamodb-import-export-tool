@@ -127,7 +127,7 @@ public class CommandLineArgs {
 
     public static final String MIN_SOURCE_RCU_DURING_REPLICA = "--min-source-rcu-during-replica";
     @Parameter(names = MIN_SOURCE_RCU_DURING_REPLICA, description = "minimum RCU provisioning for source dynamodb table", required = false)
-    private Long minSourceRCU = 500;
+    private Long minSourceRCU = 500L;
 
     public Long getMinSourceRCU() {
         return minSourceRCU;
@@ -135,7 +135,7 @@ public class CommandLineArgs {
 
     public static final String MIN_TARGET_WCU_DURING_REPLICA = "--min-target-wcu-during-replica";
     @Parameter(names = MIN_TARGET_WCU_DURING_REPLICA, description = "minimum WCU provisioning for target dynamodb table", required = false)
-    private Long minTargetWCU = 500;
+    private Long minTargetWCU = 500L;
 
     public Long getMinTargetWCU() {
         return minTargetWCU;
